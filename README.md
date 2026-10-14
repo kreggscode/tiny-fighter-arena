@@ -11,9 +11,33 @@ Open the deployed game:
 
 **https://kreggscode.github.io/tiny-fighter-arena/**
 
-Paste a Pollinations key from <https://enter.pollinations.ai/keys>, type one line,
-and fight. The key is kept in `localStorage` and is only ever sent to
-`gen.pollinations.ai`.
+Click **Sign in with Pollinations**, approve the key, and fight. Type one line and
+the arena does the rest.
+
+## Bring your own Pollen
+
+The arena never holds a shared key. Players authorize their own spend through
+[BYOP](https://github.com/pollinations/pollinations/blob/main/BRING_YOUR_OWN_POLLEN.md)
+using the OAuth authorization-code flow with PKCE, which works from a static page
+because PKCE replaces the client secret.
+
+The consent screen shows exactly what is being granted, and the authorize link
+requests the narrowest thing the game needs:
+
+| Param | Value | Why |
+| --- | --- | --- |
+| `scope` | `usage` | generation only, no account admin |
+| `models` | `text` | the arena uses text models and nothing else |
+| `budget` | `10` | hard Pollen cap for the session |
+| `expiry` | `7` | key lifetime in days, revocable any time |
+
+The user-authorized key lands in `sessionStorage` and is sent only to
+`gen.pollinations.ai`. It is never written to `localStorage`, a URL, an
+analytics call, or a log. Expired or revoked keys are dropped and the player is
+returned to the sign-in screen.
+
+Developers can still paste their own key from
+<https://enter.pollinations.ai/keys> under **Use your own key instead**.
 
 ## How it plays
 
@@ -43,8 +67,9 @@ npx http-server -p 8080
 
 Open <http://localhost:8080>.
 
-To play, click **API key** and paste a key from
-<https://enter.pollinations.ai/keys>.
+Sign in with the BYOP flow, which supports localhost as a redirect origin. To
+skip the consent screen while hacking, click **Use your own key instead** and
+paste a key from <https://enter.pollinations.ai/keys>.
 
 ## See the arena without a key
 
@@ -65,6 +90,9 @@ POLLINATIONS_API_KEY=sk_... node tests/live_check.mjs
 
 # regenerate demo.json from a real run
 POLLINATIONS_API_KEY=sk_... node tests/make_demo.mjs
+
+# BYOP plumbing: no key needed, no user login needed
+node tests/oauth_check.mjs
 ```
 
 `tests/live_check.mjs` asserts the two schemas the game depends on:
@@ -72,6 +100,11 @@ POLLINATIONS_API_KEY=sk_... node tests/make_demo.mjs
 - fighter design comes back with string fields, at least three abilities, and
   stats clamped to 1-10
 - battle rounds come back with both actions, commentary, and damage in 0-18
+
+`tests/oauth_check.mjs` verifies the sign-in plumbing without a GitHub login:
+the token endpoint understands the request and answers a bogus code with an RFC
+6749 `invalid_grant` rather than a 404 or HTML, the consent screen accepts the
+registered redirect URI, and the PKCE verifier/challenge pair is valid S256.
 
 ## API
 
@@ -96,10 +129,12 @@ plays.
 
 | File | Purpose |
 | --- | --- |
-| `index.html` | Screens: key, creation, fighter card, arena, result |
+| `index.html` | Screens: sign-in, creation, fighter card, arena, result |
+| `byop.js` | OAuth code + PKCE sign-in, scoped user key handling |
 | `app.js` | State machine, API client, JSON extraction, damage clamps |
 | `style.css` | Arena layout, HP bars, combat log |
 | `tests/live_check.mjs` | Live schema contract check |
+| `tests/oauth_check.mjs` | Sign-in plumbing check, no login required |
 | `tests/make_demo.mjs` | Writes `demo.json` from a real model run |
 | `demo.json` | Real output used by `?demo=1` |
 
@@ -109,5 +144,6 @@ plays.
   it to 0-18. State can never drift because a model miscounted.
 - **Distrust is contained.** JSON extraction and field clamping live in one
   function each, so a malformed reply degrades a single round instead of the run.
-- **Bring your own key.** No server, no proxy, no shared key to leak. The game is
-  three static files.
+- **No shared key, and no server.** Users authorize their own spend through
+  OAuth + PKCE; the app only ever holds a scoped, budget-capped user key in
+  `sessionStorage`. The whole game is four static files.

@@ -6,7 +6,7 @@ const LADDER_SIZE = 5;
 const MAX_HP = 100;
 
 const state = {
-  key: localStorage.getItem("tfa_key") || "",
+  pasteKey: localStorage.getItem("tfa_key") || "",
   player: null,
   enemy: null,
   playerHp: MAX_HP,
@@ -52,12 +52,26 @@ function extractJson(text) {
   }
 }
 
+// The user-authorized BYOP token wins; a pasted key is the developer fallback.
+function effectiveKey() {
+  return window.BYOP.token() || state.pasteKey || "";
+}
+
+function isAuthed() {
+  return effectiveKey() !== "";
+}
+
+function syncAccountUi() {
+  const signedIn = window.BYOP.isSignedIn();
+  $("keyBtn").textContent = signedIn ? "Sign out" : "Account";
+}
+
 async function chat(system, user) {
   const res = await fetch(API_BASE, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: "Bearer " + state.key,
+      Authorization: "Bearer " + effectiveKey(),
     },
     body: JSON.stringify({
       model: MODEL,
@@ -72,6 +86,13 @@ async function chat(system, user) {
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     const msg = (data && data.error && data.error.message) || "Request failed (" + res.status + ")";
+    // A rejected user key means it expired or was revoked: drop it so the
+    // player is sent back to sign in rather than retrying a dead token.
+    if (res.status === 401 && window.BYOP.isSignedIn()) {
+      window.BYOP.signOut();
+      syncAccountUi();
+      throw new Error(msg + " Your Pollen key expired or was revoked, so please sign in again.");
+    }
     throw new Error(msg);
   }
   const content = data && data.choices && data.choices[0] && data.choices[0].message.content;
@@ -383,27 +404,53 @@ async function busy(button, label, work) {
   }
 }
 
-function init() {
-  $("keyInput").value = state.key;
+async function init() {
+  $("keyInput").value = state.pasteKey;
+  syncAccountUi();
 
   if (new URLSearchParams(location.search).get("demo") === "1") {
-    loadDemo().catch((err) => show("screenCreate"));
+    loadDemo().catch(() => show("screenCreate"));
     return;
   }
 
-  if (state.key) {
+  // Finish the OAuth exchange when we have just come back from consent.
+  if (window.BYOP.isCallback()) {
+    show("screenCreate");
+    try {
+      await window.BYOP.handleCallback();
+      syncAccountUi();
+    } catch (err) {
+      setError("keyError", err.message);
+    }
+  }
+
+  if (isAuthed()) {
     show("screenCreate");
   } else {
     show("screenKey");
   }
 
-  $("keyBtn").addEventListener("click", () => show("screenKey"));
+  $("signInBtn").addEventListener("click", () => window.BYOP.signIn());
+
+  $("keyToggle").addEventListener("click", () => {
+    const box = $("keyManual");
+    box.classList.toggle("hidden");
+    if (!box.classList.contains("hidden")) $("keyInput").focus();
+  });
+
+  $("keyBtn").addEventListener("click", () => {
+    if (window.BYOP.isSignedIn()) {
+      window.BYOP.signOut();
+      syncAccountUi();
+    }
+    show("screenKey");
+  });
 
   $("keySave").addEventListener("click", () =>
     busy($("keySave"), "Checking...", async () => {
       const value = $("keyInput").value.trim();
       if (!value) throw new Error("Paste an API key first.");
-      state.key = value;
+      state.pasteKey = value;
       localStorage.setItem("tfa_key", value);
       const reply = await chat("Reply with only OK.", "ping");
       if (!/ok/i.test(reply)) throw new Error("The key was accepted but the reply was unexpected.");
@@ -457,4 +504,4 @@ function init() {
   $("voiceBtn").textContent = "Voice: " + (state.voice ? "on" : "off");
 }
 
-init();
+init().catch((err) => console.error("arena failed to start", err));

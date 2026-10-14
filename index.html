@@ -20,18 +20,31 @@
     </header>
 
     <main>
-      <!-- Key setup -->
+      <!-- Sign in -->
       <section id="screenKey" class="screen">
         <div class="panel">
           <h2>Bring your own Pollen</h2>
           <p>
-            This arena calls the Pollinations API directly from your browser. Paste a key from
-            <a href="https://enter.pollinations.ai/keys" target="_blank" rel="noreferrer">enter.pollinations.ai/keys</a>.
-            It is stored only in this browser and never sent anywhere except Pollinations.
+            The arena spends your own Pollen through the
+            <a href="https://github.com/pollinations/pollinations/blob/main/BRING_YOUR_OWN_POLLEN.md" target="_blank" rel="noreferrer">BYOP</a>
+            flow. Sign in to Pollinations and approve a key that is scoped to text models, capped at
+            10 Pollen and valid for 7 days. You can revoke it any time from your dashboard.
           </p>
-          <input id="keyInput" type="password" placeholder="sk_..." autocomplete="off" spellcheck="false" />
+          <button id="signInBtn" class="primary" type="button">Sign in with Pollinations</button>
+
           <p id="keyError" class="error hidden"></p>
-          <button id="keySave" class="primary" type="button">Enter the arena</button>
+
+          <button id="keyToggle" class="ghost advanced-toggle" type="button">Use your own key instead</button>
+
+          <div id="keyManual" class="hidden">
+            <p>
+              Paste a key from
+              <a href="https://enter.pollinations.ai/keys" target="_blank" rel="noreferrer">enter.pollinations.ai/keys</a>.
+              Stored in this browser only and sent nowhere except Pollinations.
+            </p>
+            <input id="keyInput" type="password" placeholder="sk_..." autocomplete="off" spellcheck="false" />
+            <button id="keySave" class="primary" type="button">Enter the arena</button>
+          </div>
         </div>
       </section>
 
@@ -103,6 +116,7 @@
       </a>
     </footer>
 
+    <script src="byop.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

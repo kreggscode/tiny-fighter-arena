@@ -154,6 +154,22 @@ button {
   margin: 10px 0 0;
 }
 
+.advanced-toggle {
+  margin-top: 20px;
+  font-size: 13px;
+  width: 100%;
+}
+
+#keyManual {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
+#keyManual .primary {
+  margin-top: 12px;
+}
+
 .examples {
   display: flex;
   flex-wrap: wrap;
