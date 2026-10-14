@@ -1,0 +1,68 @@
+{
+  "playerLine": "a shy storm cloud that apologises before it strikes",
+  "player": {
+    "name": "Stormcloud",
+    "epithet": "Apologetic Tempest",
+    "look": "soft gray with faint lightning",
+    "style": "lightning-based",
+    "quirk": "always apologizes before attacking",
+    "abilities": [
+      "Thunder Strike",
+      "Rain Shield",
+      "Cloud Cover"
+    ],
+    "stats": {
+      "power": 7,
+      "defense": 5,
+      "speed": 8,
+      "wit": 6
+    }
+  },
+  "enemy": {
+    "name": "Thorne",
+    "epithet": "Storm's Vengeance",
+    "look": "Grizzled warrior with storm-gray hair and piercing blue eyes",
+    "style": "Electric Fury",
+    "quirk": "Fists crackle with energy",
+    "abilities": [
+      "Thunder Punch",
+      "Lightning Strike",
+      "Storm Surge"
+    ],
+    "stats": {
+      "power": 9,
+      "defense": 8,
+      "speed": 7,
+      "wit": 6
+    }
+  },
+  "rung": 1,
+  "playerHp": 81,
+  "enemyHp": 64,
+  "rounds": [
+    {
+      "round": 1,
+      "playerDealt": 12,
+      "enemyDealt": 8,
+      "playerAction": "Thunder Strike",
+      "enemyAction": "Thunder Punch",
+      "commentary": "The shy storm cloud zaps with a powerful Thunder Strike, while Thorne's Thunder Punch is barely enough to make a dent!"
+    },
+    {
+      "round": 2,
+      "playerDealt": 12,
+      "enemyDealt": 5,
+      "playerAction": "Thunder Strike",
+      "enemyAction": "Thunder Punch",
+      "commentary": "The apologetic storm cloud unleashed a mighty Thunder Strike, while Thorne's Thunder Punch fizzled against its Rain Shield!"
+    },
+    {
+      "round": 3,
+      "playerDealt": 12,
+      "enemyDealt": 6,
+      "playerAction": "Thunder Strike",
+      "enemyAction": "Thunder Punch",
+      "commentary": "The shy storm cloud apologizes and unleashes a Thunder Strike, shocking the grizzled warrior! Thorne's Thunder Punch barely lands before the tempest dissipates!"
+    }
+  ]
+}

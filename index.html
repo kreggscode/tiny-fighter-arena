@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tiny Fighter Arena</title>
+    <meta
+      name="description"
+      content="Describe a fighter in one line. The AI designs it, then sends it into a commentated battle."
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Tiny Fighter Arena</h1>
+      <div class="topbar-right">
+        <span id="ladderLabel" class="ladder hidden">Challenger 1 / 5</span>
+        <button id="keyBtn" class="ghost" type="button">API key</button>
+      </div>
+    </header>
+
+    <main>
+      <!-- Key setup -->
+      <section id="screenKey" class="screen">
+        <div class="panel">
+          <h2>Bring your own Pollen</h2>
+          <p>
+            This arena calls the Pollinations API directly from your browser. Paste a key from
+            <a href="https://enter.pollinations.ai/keys" target="_blank" rel="noreferrer">enter.pollinations.ai/keys</a>.
+            It is stored only in this browser and never sent anywhere except Pollinations.
+          </p>
+          <input id="keyInput" type="password" placeholder="sk_..." autocomplete="off" spellcheck="false" />
+          <p id="keyError" class="error hidden"></p>
+          <button id="keySave" class="primary" type="button">Enter the arena</button>
+        </div>
+      </section>
+
+      <!-- Fighter creation -->
+      <section id="screenCreate" class="screen hidden">
+        <div class="panel">
+          <h2>Describe your fighter</h2>
+          <p>One line. The whole design comes from it, and clever lines win more fights.</p>
+          <input
+            id="lineInput"
+            type="text"
+            maxlength="220"
+            placeholder="a rusty clockwork knight who fights with falling clock hands"
+            autocomplete="off"
+          />
+          <div class="examples">
+            <button class="example" type="button">a shy storm cloud that apologises before it strikes</button>
+            <button class="example" type="button">a librarian whose whispers unravel armour</button>
+            <button class="example" type="button">a sourdough golem that hardens when cornered</button>
+          </div>
+          <p id="createError" class="error hidden"></p>
+          <button id="createBtn" class="primary" type="button">Forge fighter</button>
+        </div>
+      </section>
+
+      <!-- Fighter card preview -->
+      <section id="screenCard" class="screen hidden">
+        <div class="panel" id="cardPanel"></div>
+        <button id="toBattleBtn" class="primary" type="button">To the arena</button>
+      </section>
+
+      <!-- Battle -->
+      <section id="screenBattle" class="screen hidden">
+        <div class="arena">
+          <div class="fighter" id="fighterA"></div>
+          <div class="vs">
+            <span id="turnLabel">Round 1</span>
+            <strong>VS</strong>
+          </div>
+          <div class="fighter" id="fighterB"></div>
+        </div>
+
+        <div class="logwrap">
+          <div id="log" class="log" aria-live="polite"></div>
+          <div class="controls">
+            <button id="nextBtn" class="primary" type="button">Next round</button>
+            <button id="autoBtn" class="ghost" type="button">Auto</button>
+            <button id="voiceBtn" class="ghost" type="button">Voice: on</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Result -->
+      <section id="screenResult" class="screen hidden">
+        <div class="panel">
+          <h2 id="resultTitle"></h2>
+          <p id="resultText"></p>
+          <button id="resultBtn" class="primary" type="button"></button>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <a href="https://pollinations.ai/?ref=badge" target="_blank" rel="noreferrer">
+        <img
+          src="https://raw.githubusercontent.com/pollinations/pollinations/main/packages/ui/src/brand/badge-made-with.svg"
+          alt="Made with pollinations.ai"
+        />
+      </a>
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>
