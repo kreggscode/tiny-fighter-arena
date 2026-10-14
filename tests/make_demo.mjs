@@ -18,15 +18,38 @@ const FIGHTER_SYSTEM =
   '"abilities":string[3],"stats":{"power":1-10,"defense":1-10,"speed":1-10,"wit":1-10}}. ' +
   "Keep look under 30 words. abilities are short combat moves, not adjectives.";
 
+// Mirrors app.js: the round is decided by a seeded engine, the model only narrates it.
 const BATTLE_SYSTEM =
-  "You are the commentator and referee of a tiny fighting arena. Reply with ONLY a JSON object, no prose, no code fences. " +
-  'Schema: {"playerDealt":integer,"enemyDealt":integer,"playerAction":string,"enemyAction":string,"commentary":string}. ' +
-  "playerDealt is damage the player's fighter DEALT to the enemy; enemyDealt is the reverse. " +
-  "Each is 0 to 18. Both fighters act every round; the faster one acts first, which you show in commentary. " +
-  "Damage must follow from the fighters' designs and abilities, not random numbers. " +
-  "The player's one-line description is a real design brief: when it suggests a concrete advantage " +
-  "against this particular enemy, let it pay off with higher damage and say why. Vague descriptions underperform. " +
-  "commentary is one or two punchy sentences of arena commentary. Keep it fun and clean.";
+  "You are the arena commentator of a tiny fighting arena. The fight is decided by a seeded rules engine before " +
+  "you ever see it: you describe what happened, you never decide it. Reply with ONLY a JSON object, no prose, no code fences. " +
+  'Schema: {"playerAction":string,"enemyAction":string,"commentary":string}. ' +
+  "The referee hands you an outcome and the resulting HP totals. Reflect it exactly as given: the damage numbers and " +
+  "who is winning are not yours to change, and you never declare the result of the fight yourself. " +
+  "Both fighters act every round and you are told which moved first - show that in the commentary. " +
+  "Ground the action in the fighters' designs, abilities and quirks, so a clever one-line brief visibly pays off. " +
+  "playerAction and enemyAction are the single move that fighter used. commentary is one or two punchy sentences. " +
+  "Keep it fun and clean.";
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function rollDamage(attacker, defender, rng) {
+  const attack = attacker.stats.power + attacker.stats.wit * 0.3;
+  const mitigation = defender.stats.defense * 0.55;
+  const variance = rng() * 5 - 2;
+  const crit = rng() < attacker.stats.wit / 40 ? 3 : 0;
+  return clamp(Math.round(attack - mitigation + variance + crit), 0, 18);
+}
+
+const initiative = (f) => f.stats.speed + f.stats.wit / 2;
 
 async function chat(system, user) {
   const res = await fetch(API, {
@@ -48,7 +71,6 @@ function extractJson(text) {
 }
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const num = (v, f) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : f);
 
 const playerLine = "a shy storm cloud that apologises before it strikes";
 
@@ -62,21 +84,32 @@ const enemy = extractJson(
 let playerHp = MAX_HP;
 let enemyHp = MAX_HP;
 const rounds = [];
+const RUNG = 2;
+const SEED = (Math.random() * 0xffffffff) >>> 0;
+const rng = mulberry32((SEED ^ Math.imul(RUNG, 0x9e3779b1)) >>> 0);
 
 for (let round = 1; round <= 3 && playerHp > 0 && enemyHp > 0; round++) {
-  const user =
-    "Round " + round + "\n\nPLAYER LINE: " + playerLine + "\n\nPLAYER FIGHTER: " + JSON.stringify(player) +
-    "\nPlayer HP: " + playerHp + "/100\n\nENEMY FIGHTER: " + JSON.stringify(enemy) +
-    "\nEnemy HP: " + enemyHp + "/100\n\nLadder rung 2 of 5.";
-  const b = extractJson(await chat(BATTLE_SYSTEM, user));
-  const dealt = clamp(num(b.playerDealt, 0), 0, 18);
-  const taken = clamp(num(b.enemyDealt, 0), 0, 18);
+  const playerFirst = initiative(player) >= initiative(enemy);
+  const dealt = rollDamage(player, enemy, rng);
+  const taken = rollDamage(enemy, player, rng);
   enemyHp = Math.max(0, enemyHp - dealt);
   playerHp = Math.max(0, playerHp - taken);
+
+  const user =
+    "Round " + round + "\n\nDECIDED OUTCOME - describe this, do not alter it:\n" +
+    "- " + (playerFirst ? player.name : enemy.name) + " moved first\n" +
+    "- " + player.name + " dealt " + dealt + " damage\n" +
+    "- " + enemy.name + " dealt " + taken + " damage\n" +
+    "- " + player.name + " is now on " + playerHp + "/" + MAX_HP + " hp\n" +
+    "- " + enemy.name + " is now on " + enemyHp + "/" + MAX_HP + " hp\n\n" +
+    "PLAYER LINE: " + playerLine + "\n\nPLAYER FIGHTER: " + JSON.stringify(player) +
+    "\n\nENEMY FIGHTER: " + JSON.stringify(enemy) + "\n\nLadder rung " + RUNG + " of 5.";
+
+  const b = extractJson(await chat(BATTLE_SYSTEM, user));
   rounds.push({ round, playerDealt: dealt, enemyDealt: taken, playerAction: b.playerAction, enemyAction: b.enemyAction, commentary: b.commentary });
 }
 
-const demo = { playerLine, player, enemy, rung: 1, playerHp, enemyHp, rounds };
+const demo = { playerLine, player, enemy, rung: 1, seed: SEED, playerHp, enemyHp, rounds };
 writeFileSync("demo.json", JSON.stringify(demo, null, 2) + "\n");
 
 console.log("wrote demo.json");

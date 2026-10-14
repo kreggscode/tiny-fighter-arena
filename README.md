@@ -43,16 +43,35 @@ Developers can still paste their own key from
 
 1. **One line in.** `a shy storm cloud that apologises before it strikes` becomes a
    complete fighter: name, epithet, look, style, quirk, three abilities, four stats.
-2. **The line is a design brief.** The referee model is told to reward a concrete
-   advantage in your line against *this specific* enemy. A vague line underperforms,
-   so clever descriptions genuinely win more fights.
-3. **Turn by turn.** Both fighters act every round. Damage is derived from the two
-   designs and their abilities rather than rolled randomly, and the commentary
-   explains the exchange.
+2. **The line is a design brief.** Damage is computed from the two designs, so a
+   concrete advantage in your line against *this specific* enemy pays off as higher
+   numbers. A vague line underperforms, so clever descriptions genuinely win more
+   fights.
+3. **The model narrates; it does not referee.** A seeded rules engine decides each
+   round before the model sees anything. The prompt hands it a decided outcome and
+   asks it to describe what happened. The commentary is vivid, but it can never
+   change a damage number or declare itself the winner.
 4. **Ladder.** Five challengers, each generated as a stylistic counterpoint to your
    fighter, escalating to an undefeated final boss.
 
 Voice commentary uses the browser's speech synthesis and can be toggled off.
+
+## Share a fight
+
+**Share fight** copies a link that replays the exact battle. The token carries both
+fighters, the seed, and every round already narrated, so a friend watches the same
+fight with no sign-in and no generation cost.
+
+Because damage is a pure function of `(fighters, seed, rung)`, the link is honest
+about more than the saved rounds: anyone who keeps fighting past them reaches the
+same result you would have.
+
+The token is base64url over a small JSON blob - about 1.5 KB, URL-safe, and
+entirely client-side. No key or credential ever travels in it.
+
+```
+https://kreggscode.github.io/tiny-fighter-arena/?fight=<token>
+```
 
 ## Run locally
 
@@ -91,15 +110,25 @@ POLLINATIONS_API_KEY=sk_... node tests/live_check.mjs
 # regenerate demo.json from a real run
 POLLINATIONS_API_KEY=sk_... node tests/make_demo.mjs
 
+# share-link contract, no key needed
+node tests/share_check.mjs
+
 # BYOP plumbing: no key needed, no user login needed
 node tests/oauth_check.mjs
 ```
 
-`tests/live_check.mjs` asserts the two schemas the game depends on:
+`tests/live_check.mjs` asserts the contract the game depends on:
 
 - fighter design comes back with string fields, at least three abilities, and
   stats clamped to 1-10
-- battle rounds come back with both actions, commentary, and damage in 0-18
+- battle narration comes back with both actions and commentary, and carries no
+  damage fields of its own - damage is the engine's to decide
+- the same seed reproduces the same damage sequence, round for round
+
+`tests/share_check.mjs` asserts the share token round-trips losslessly, stays
+URL-safe and short, reproduces the original fight from the decoded state alone,
+diverges for a different seed, and rejects malformed links instead of rendering a
+blank screen.
 
 `tests/oauth_check.mjs` verifies the sign-in plumbing without a GitHub login:
 the token endpoint understands the request and answers a bogus code with an RFC
@@ -131,19 +160,26 @@ plays.
 | --- | --- |
 | `index.html` | Screens: sign-in, creation, fighter card, arena, result |
 | `byop.js` | OAuth code + PKCE sign-in, scoped user key handling |
-| `app.js` | State machine, API client, JSON extraction, damage clamps |
+| `app.js` | State machine, API client, seeded damage engine, share links |
 | `style.css` | Arena layout, HP bars, combat log |
-| `tests/live_check.mjs` | Live schema contract check |
+| `tests/live_check.mjs` | Live contract check: schemas, narration, determinism |
+| `tests/share_check.mjs` | Share-token round trip and replay fidelity |
 | `tests/oauth_check.mjs` | Sign-in plumbing check, no login required |
 | `tests/make_demo.mjs` | Writes `demo.json` from a real model run |
 | `demo.json` | Real output used by `?demo=1` |
 
 ## Design notes
 
-- **Client owns HP.** The model reports damage; the client applies it and clamps
-  it to 0-18. State can never drift because a model miscounted.
-- **Distrust is contained.** JSON extraction and field clamping live in one
-  function each, so a malformed reply degrades a single round instead of the run.
+- **The engine owns damage.** `resolveRound()` derives damage from both designs and
+  a seeded RNG, clamped to 0-18. The model narrates a result it cannot alter, so a
+  round can never be talked into a bigger number.
+- **One seed, one fight.** Rounds are a pure function of `(seed, rung)`, which is
+  what lets a shared link replay a battle for free instead of re-generating it.
+- **The model owns flavour, only.** Names, looks, abilities and commentary all come
+  from Pollinations. The things a model is bad at - arithmetic, and being honest
+  about who is winning - never leave the engine.
+- **Distrust is contained.** JSON extraction lives in one function, so a malformed
+  reply degrades a single round's commentary instead of the whole run.
 - **No shared key, and no server.** Users authorize their own spend through
   OAuth + PKCE; the app only ever holds a scoped, budget-capped user key in
   `sessionStorage`. The whole game is four static files.

@@ -5,6 +5,9 @@ const MODEL = "nova-fast";
 const LADDER_SIZE = 5;
 const MAX_HP = 100;
 
+// One seed drives the whole run: recorded so a shared link replays it exactly.
+const RUN_SEED = newSeed();
+
 const state = {
   pasteKey: localStorage.getItem("tfa_key") || "",
   player: null,
@@ -16,6 +19,9 @@ const state = {
   auto: false,
   busy: false,
   finished: false,
+  seed: RUN_SEED,
+  rng: mulberry32(RUN_SEED),
+  rounds: [],
   voice: localStorage.getItem("tfa_voice") !== "off",
 };
 
@@ -116,6 +122,47 @@ function number(value, fallback) {
   return Number.isFinite(n) ? Math.round(n) : fallback;
 }
 
+// --- Deterministic fight engine ---------------------------------------------
+// The round is decided here, from the two designs and a seeded RNG. The model
+// only narrates the result, so it cannot hand itself a win and the same seed
+// always replays the same fight.
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function newSeed() {
+  return (Math.random() * 0xffffffff) >>> 0;
+}
+
+function rollDamage(attacker, defender, rng) {
+  const attack = attacker.stats.power + attacker.stats.wit * 0.3;
+  const mitigation = defender.stats.defense * 0.55;
+  const variance = rng() * 5 - 2;
+  const crit = rng() < attacker.stats.wit / 40 ? 3 : 0;
+  return clamp(Math.round(attack - mitigation + variance + crit), 0, 18);
+}
+
+function initiative(fighter) {
+  return fighter.stats.speed + fighter.stats.wit / 2;
+}
+
+// Pure given the RNG state: replaying from the same seed reproduces the fight.
+function resolveRound() {
+  const rng = state.rng;
+  const playerFirst = initiative(state.player) >= initiative(state.enemy);
+  const playerDealt = rollDamage(state.player, state.enemy, rng);
+  const enemyDealt = rollDamage(state.enemy, state.player, rng);
+  return { playerFirst, playerDealt, enemyDealt };
+}
+
 // --- Screens ----------------------------------------------------------------
 
 function renderCard(fighter) {
@@ -192,23 +239,29 @@ const FIGHTER_SYSTEM =
   "Keep look under 30 words. abilities are short combat moves, not adjectives.";
 
 const BATTLE_SYSTEM =
-  "You are the commentator and referee of a tiny fighting arena. Reply with ONLY a JSON object, no prose, no code fences. " +
-  'Schema: {"playerDealt":integer,"enemyDealt":integer,"playerAction":string,"enemyAction":string,"commentary":string}. ' +
-  "playerDealt is damage the player's fighter DEALT to the enemy; enemyDealt is the reverse. " +
-  "Each is 0 to 18. Both fighters act every round; the faster one acts first, which you show in commentary. " +
-  "Damage must follow from the fighters' designs and abilities, not random numbers. " +
-  "The player's one-line description is a real design brief: when it suggests a concrete advantage " +
-  "against this particular enemy, let it pay off with higher damage and say why. Vague descriptions underperform. " +
-  "commentary is one or two punchy sentences of arena commentary. Keep it fun and clean.";
+  "You are the arena commentator of a tiny fighting arena. The fight is decided by a seeded rules engine before " +
+  "you ever see it: you describe what happened, you never decide it. Reply with ONLY a JSON object, no prose, no code fences. " +
+  'Schema: {"playerAction":string,"enemyAction":string,"commentary":string}. ' +
+  "The referee hands you an outcome and the resulting HP totals. Reflect it exactly as given: the damage numbers and " +
+  "who is winning are not yours to change, and you never declare the result of the fight yourself. " +
+  "Both fighters act every round and you are told which moved first - show that in the commentary. " +
+  "Ground the action in the fighters' designs, abilities and quirks, so a clever one-line brief visibly pays off. " +
+  "playerAction and enemyAction are the single move that fighter used. commentary is one or two punchy sentences. " +
+  "Keep it fun and clean.";
 
-function buildBattleUser() {
+function buildBattleUser(outcome) {
+  const first = outcome.playerFirst ? state.player.name : state.enemy.name;
   return (
     "Round " + state.round + "\n\n" +
+    "DECIDED OUTCOME - describe this, do not alter it:\n" +
+    "- " + first + " moved first\n" +
+    "- " + state.player.name + " dealt " + outcome.playerDealt + " damage\n" +
+    "- " + state.enemy.name + " dealt " + outcome.enemyDealt + " damage\n" +
+    "- " + state.player.name + " is now on " + state.playerHp + "/" + MAX_HP + " hp\n" +
+    "- " + state.enemy.name + " is now on " + state.enemyHp + "/" + MAX_HP + " hp\n\n" +
     "PLAYER LINE (the design brief): " + state.playerLine + "\n\n" +
-    "PLAYER FIGHTER: " + JSON.stringify(state.player) + "\n" +
-    "Player HP: " + state.playerHp + "/" + MAX_HP + "\n\n" +
-    "ENEMY FIGHTER: " + JSON.stringify(state.enemy) + "\n" +
-    "Enemy HP: " + state.enemyHp + "/" + MAX_HP + "\n\n" +
+    "PLAYER FIGHTER: " + JSON.stringify(state.player) + "\n\n" +
+    "ENEMY FIGHTER: " + JSON.stringify(state.enemy) + "\n\n" +
     "Ladder rung " + (state.rung + 1) + " of " + LADDER_SIZE + "."
   );
 }
@@ -255,6 +308,9 @@ async function startBattle() {
   state.enemyHp = MAX_HP;
   state.round = 1;
   state.finished = false;
+  state.rounds = [];
+  // Same seed and rung always produce the same rounds, in the same order.
+  state.rng = mulberry32((state.seed ^ Math.imul(state.rung + 1, 0x9e3779b1)) >>> 0);
   renderBattle();
   show("screenBattle");
   log(escapeHtml(state.enemy.name) + " steps into the ring. " + escapeHtml(state.enemy.epithet || ""), "round");
@@ -268,19 +324,31 @@ async function nextRound() {
   $("autoBtn").disabled = true;
 
   try {
-    const result = await chatJson(BATTLE_SYSTEM, buildBattleUser());
-
-    const dealt = clamp(number(result.playerDealt, 0), 0, 18);
-    const taken = clamp(number(result.enemyDealt, 0), 0, 18);
+    // The round is decided here, before the model sees anything.
+    const outcome = resolveRound();
+    const dealt = outcome.playerDealt;
+    const taken = outcome.enemyDealt;
 
     state.enemyHp = Math.max(0, state.enemyHp - dealt);
     state.playerHp = Math.max(0, state.playerHp - taken);
 
+    const narration = await chatJson(BATTLE_SYSTEM, buildBattleUser(outcome));
+
     log('<span class="round">Round ' + state.round + "</span>");
-    log(escapeHtml(result.playerAction || "Your fighter strikes."), dealt >= 12 ? "crit" : "");
-    log(escapeHtml(result.enemyAction || "The challenger answers."), taken >= 12 ? "crit" : "");
-    log(escapeHtml(result.commentary || ""));
-    speak(result.commentary || result.playerAction || "");
+    log(escapeHtml(narration.playerAction || "Your fighter strikes."), dealt >= 12 ? "crit" : "");
+    log(escapeHtml(narration.enemyAction || "The challenger answers."), taken >= 12 ? "crit" : "");
+    log(escapeHtml(narration.commentary || ""));
+    speak(narration.commentary || narration.playerAction || "");
+
+    // Kept so a shared link can replay the fight verbatim, with no API calls.
+    state.rounds.push({
+      round: state.round,
+      playerDealt: dealt,
+      enemyDealt: taken,
+      playerAction: narration.playerAction || "Your fighter strikes.",
+      enemyAction: narration.enemyAction || "The challenger answers.",
+      commentary: narration.commentary || "",
+    });
 
     renderBattle();
     state.round += 1;
@@ -365,23 +433,82 @@ async function loadDemo() {
   state.player = normaliseFighter(demo.player);
   state.enemy = normaliseFighter(demo.enemy);
   state.rung = demo.rung || 0;
+  state.seed = number(demo.seed, state.seed);
   state.playerHp = demo.playerHp;
   state.enemyHp = demo.enemyHp;
   state.round = (demo.rounds.length || 0) + 1;
+  state.rounds = demo.rounds || [];
   state.finished = false;
 
+  renderRecordedRounds();
+}
+
+// --- Sharing ----------------------------------------------------------------
+// A shared link carries both fighters, the seed and every round already narrated,
+// so opening it replays the identical fight with no API calls at all.
+
+function encodeFight() {
+  const payload = {
+    l: state.playerLine,
+    p: state.player,
+    e: state.enemy,
+    r: state.rung,
+    s: state.seed,
+    hp: [state.playerHp, state.enemyHp],
+    n: state.rounds,
+  };
+  let bin = "";
+  for (const b of new TextEncoder().encode(JSON.stringify(payload))) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function decodeFight(token) {
+  const b64 = token.replace(/-/g, "+").replace(/_/g, "/");
+  const bin = atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4));
+  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  const d = JSON.parse(new TextDecoder().decode(bytes));
+  if (!d || typeof d !== "object" || !d.p || !d.e) throw new Error("that is not a shared fight");
+  return d;
+}
+
+function renderRecordedRounds() {
   $("log").innerHTML = "";
   show("screenBattle");
   log(escapeHtml(state.enemy.name) + " steps into the ring. " + escapeHtml(state.enemy.epithet || ""), "round");
-
-  for (const r of demo.rounds) {
+  for (const r of state.rounds) {
     log('<span class="round">Round ' + r.round + "</span>");
     log(escapeHtml(r.playerAction), r.playerDealt >= 12 ? "crit" : "");
     log(escapeHtml(r.enemyAction), r.enemyDealt >= 12 ? "crit" : "");
     log(escapeHtml(r.commentary));
   }
-
   renderBattle();
+}
+
+async function shareFight() {
+  if (!state.player || !state.enemy) return;
+  const url = location.origin + location.pathname + "?fight=" + encodeFight();
+  try {
+    await navigator.clipboard.writeText(url);
+    log('<span class="round">Link copied. Anyone opening it replays this exact fight, for free.</span>');
+  } catch (err) {
+    window.prompt("Copy this link to share the fight:", url);
+  }
+}
+
+function loadSharedFight(token) {
+  const d = decodeFight(token);
+  state.playerLine = String(d.l || "a challenger from a shared link");
+  state.player = normaliseFighter(d.p);
+  state.enemy = normaliseFighter(d.e);
+  state.rung = number(d.r, 0);
+  state.seed = number(d.s, RUN_SEED);
+  state.playerHp = number(d.hp && d.hp[0], MAX_HP);
+  state.enemyHp = number(d.hp && d.hp[1], MAX_HP);
+  state.rounds = Array.isArray(d.n) ? d.n : [];
+  state.round = state.rounds.length + 1;
+  state.finished = false;
+  state.rng = mulberry32((state.seed ^ Math.imul(state.rung + 1, 0x9e3779b1)) >>> 0);
+  renderRecordedRounds();
 }
 
 // --- Wiring -----------------------------------------------------------------
@@ -407,6 +534,17 @@ async function busy(button, label, work) {
 async function init() {
   $("keyInput").value = state.pasteKey;
   syncAccountUi();
+
+  // A shared link replays a fight exactly, with no key and no generation cost.
+  const shared = new URLSearchParams(location.search).get("fight");
+  if (shared) {
+    try {
+      loadSharedFight(shared);
+      return;
+    } catch (err) {
+      setError("keyError", err.message);
+    }
+  }
 
   if (new URLSearchParams(location.search).get("demo") === "1") {
     loadDemo().catch(() => show("screenCreate"));
@@ -491,6 +629,10 @@ async function init() {
     localStorage.setItem("tfa_voice", state.voice ? "on" : "off");
     $("voiceBtn").textContent = "Voice: " + (state.voice ? "on" : "off");
     if (!state.voice && "speechSynthesis" in window) window.speechSynthesis.cancel();
+  });
+
+  $("shareBtn").addEventListener("click", () => {
+    shareFight().catch((err) => log('<span class="round">Could not copy the link: ' + escapeHtml(err.message) + "</span>"));
   });
 
   $("resultBtn").addEventListener("click", async () => {
